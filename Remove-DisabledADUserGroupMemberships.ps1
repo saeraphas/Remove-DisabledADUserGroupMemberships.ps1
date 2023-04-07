@@ -39,7 +39,8 @@ import-module activedirectory
 
 $datestring = ((get-date).tostring("yyyy-MM-dd"))
 $LogFileDirectory = "c:\nexigen\offboarded\$datestring\"
-$PrimaryGroup = get-adgroup "Domain Users" -properties @("primaryGroupToken")
+$DomainUsersGroupToken = (get-adgroup "Domain Users" -properties @("primaryGroupToken")).primaryGroupToken
+$DomainGuestsGroupToken = (get-adgroup "Domain Guests" -properties @("primaryGroupToken")).primaryGroupToken
 
 If ($OU) {
 	$DisabledOU = $OU
@@ -49,12 +50,11 @@ else {
 }
 
 
-
 # create the log file directory if it doesn't exist
 If (!(Test-Path -LiteralPath $LogFileDirectory)) { New-Item -Path $LogFileDirectory -ItemType Directory -ErrorAction Stop | Out-Null }
 
-$exclusionarray = @("Guest", "Administrator", "krbtgt")
-$DisabledADUsers = Get-ADUser -SearchBase $DisabledOU -filter 'enabled -eq "false"' | Where-Object { $exclusionarray -notcontains $_.sAMAccountName }
+$ExcludedUsers = @("Guest", "Administrator", "krbtgt")
+$DisabledADUsers = Get-ADUser -SearchBase $DisabledOU -filter 'enabled -eq "false"' -Properties PrimaryGroupID | Where-Object { $ExcludedUsers -notcontains $_.sAMAccountName }
 
 if (!($Undo)) {
 	$ProgressCount = 0
@@ -67,8 +67,14 @@ if (!($Undo)) {
 		$PreviousGroups = @()
 		$PreviousGroupsLogFile = $LogFileDirectory + $($username.SamAccountName) + "-groups.csv";
 
-		#set new Primary Group
-		Set-ADUser -Identity $username -Replace @{primarygroupid = $PrimaryGroup.primaryGroupToken }
+		#Set account Primary Group to Domain Users, unless account is in Domain Guests
+#		$PrimaryGroup = (Get-ADUser $username -Properties PrimaryGroupID).primaryGroupID	#superfluous query?
+		$PrimaryGroup = $($username.primaryGroupID)
+		Write-Verbose "Account Primary Group is $PrimaryGroup, Domain Users is $DomainUsersGroupToken, Domain Guests is $DomainGuestsGroupToken."
+		if (($PrimaryGroup -ne $DomainUsersGroupToken) -and ($PrimaryGroup -ne $DomainGuestsGroupToken)){
+			Get-ADGroup -Filter { Name -eq "Domain Users" } | Add-AdGroupMember -Members $username
+			Set-ADUser -Identity $username -Replace @{primarygroupid = $DomainUsersGroupToken}
+		}
 
 		# Get all group memberships
 		$groups = get-adprincipalgroupmembership $username;
@@ -76,8 +82,9 @@ if (!($Undo)) {
 		# Loop through each group
 		foreach ($group in $groups) {
 
-			# Exclude Domain Users group
-			if ($group.name -ne "domain users") {
+			# Don't try to remove the account from Domain Users and Domain Guests
+			$ExcludedGroups = @("Domain Users","Domain Guests")
+			if ($ExcludedGroups -notcontains $group.name) {
 
 				# Write progress to screen
 				$ProgressMessage = "Attempting to remove the user $($username.DistinguishedName) from the group $($group.DistinguishedName)."
@@ -129,9 +136,8 @@ else {
 			$ProgressMessage = "Attempting to add the user $($UndoGroup.User_Name) to the group $($UndoGroup.Group_Name)."
 			Write-Verbose $ProgressMessage
 			try {
-				#Add-AdGroupMember -Identity $($UndoGroup.DistinguishedName) -Members $($UndoGroup.User_DistinguishedName)
 				[string] $Filter = $($UndoGroup.Group_Name)
-				Get-ADGroup -Filter { Name -eq "$Filter" } | Add-AdGroupMember -Members $($UndoGroup.User_Name)
+				Get-ADGroup -Filter { Name -eq $Filter } | Add-AdGroupMember -Members $($UndoGroup.User_Name)
 			}
 			catch {
 				$warning = "An error occurred while " + $ProgressMessage + " They may need to be corrected manually."
