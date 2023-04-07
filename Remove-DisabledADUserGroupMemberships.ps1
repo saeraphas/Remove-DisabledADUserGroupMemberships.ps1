@@ -2,17 +2,17 @@
 .SYNOPSIS
 	Removes group memberships from disabled AD user accounts. 
 .DESCRIPTION
-	This script removes group memberships from user accounts in the disabled Users OU and saves them to a per-user log file. 	
+	This script removes group memberships from user accounts in the disabled Users OU and saves them to a per-user log file in a dated directory.
 	
 	This script depends on the ActiveDirectory module.
 		#Install-WindowsFeature RSAT-AD-PowerShell
-	This script depends on ImportExcel module.
-		#https://github.com/dfinke/ImportExcel
-		#Install-Module -Name ImportExcel	
 	
 .PARAMETER OU
 	Specifies the DistinguishedName of the AD OU to search. 
 	If this is blank, a preconfigured OU can be specified as $DisabledOU .
+
+.PARAMETER Undo
+	Imports the CSV log files from today and adds users back to the groups they were removed from. 
 
 .EXAMPLE
 	.\Remove-DisabledADUserGroupMemberships.ps1 -OU "OU=Terminated Users,DC=example,DC=org"
@@ -26,67 +26,112 @@
 #>
 Param (
 	[Parameter(ValueFromPipelineByPropertyName)]
-	[string] $OU
+	[string] $OU,
+	[switch] $Undo
 )
 
 #Requires -Modules activedirectory 
 import-module activedirectory 
 
 $datestring = ((get-date).tostring("yyyy-MM-dd"))
-$LogFileDir = "c:\nexigen\offboarded\$datestring"
+$LogFileDirectory = "c:\nexigen\offboarded\$datestring\"
 $PrimaryGroup = get-adgroup "Domain Users" -properties @("primaryGroupToken")
 
-If (!($null -eq $OU)) {
+If ($OU) {
 	$DisabledOU = $OU
 }
 else {
 	$DisabledOU = "OU=All Users,DC=autovalve,DC=com"
 }
 
+
+
 # create the log file directory if it doesn't exist
-If (!(Test-Path -LiteralPath $LogFileDir)) { New-Item -Path $LogFileDir -ItemType Directory -ErrorAction Stop | Out-Null }
+If (!(Test-Path -LiteralPath $LogFileDirectory)) { New-Item -Path $LogFileDirectory -ItemType Directory -ErrorAction Stop | Out-Null }
 
-foreach ($username in (Get-ADUser -SearchBase $DisabledOU -filter 'enabled -eq "false"')) {
+$exclusionarray = @("Guest", "Administrator", "krbtgt")
+$DisabledADUsers = Get-ADUser -SearchBase $DisabledOU -filter 'enabled -eq "false"' | Where-Object { $exclusionarray -notcontains $_.sAMAccountName }
 
-	$PreviousGroups = @()
+if (!($Undo)) {
+	$ProgressCount = 0
+	$ProgressActivity = "Removing group memberships from $($DisabledADUsers.count) users."
+	foreach ($username in $DisabledADUsers) {
+		$ProgressCount ++
+		$ProgressMessage = "Now evaluating $($username.DistinguishedName)."
+		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete ($ProgressCount/$($DisabledADUsers.count))
+		
+		$PreviousGroups = @()
+		$PreviousGroupsLogFile = $LogFileDirectory + $($username.SamAccountName) + "-groups.csv";
 
-	#set new Primary Group
-	Set-ADUser -Identity $username -Replace @{primarygroupid = $PrimaryGroup.primaryGroupToken }
+		#set new Primary Group
+		Set-ADUser -Identity $username -Replace @{primarygroupid = $PrimaryGroup.primaryGroupToken }
 
-	# Get all group memberships
-	$groups = get-adprincipalgroupmembership $username;
+		# Get all group memberships
+		$groups = get-adprincipalgroupmembership $username;
 
-	# Loop through each group
-	foreach ($group in $groups) {
+		# Loop through each group
+		foreach ($group in $groups) {
 
-		# Exclude Domain Users group
-		if ($group.name -ne "domain users") {
+			# Exclude Domain Users group
+			if ($group.name -ne "domain users") {
 
-			# Write progress to screen
-			Write-Verbose "Attempting to remove the user $username from the group $group."
+				# Write progress to screen
+				$ProgressMessage = "Attempting to remove the user $($username.DistinguishedName) from the group $($group.DistinguishedName)."
+				Write-Verbose $ProgressMessage
 
-			# Add group names to per-user log file
-			$grouplogtxt = $LogFileDir + $username.SamAccountName + "-groups.txt";
-			$group.name >> $grouplogtxt
+				# Remove user from group
+				try { remove-adgroupmember -Identity $($group.SamAccountName) -Member $($username.SamAccountName) -Confirm:$false }
+				catch {
+					$warning = "An error occurred while " + $ProgressMessage + " They may need to be corrected manually."
+					Write-Warning $warning
+				}
 
-			# Remove user from group
-			try { remove-adgroupmember -Identity $group.SamAccountName -Member $username.SamAccountName -Confirm:$false }
-			catch {
-				$message = "An error occurred while removing the user $username from the group $group. They may need to be removed manually."
-				Write-Warning $message
-#				$message >> $grouplogtxt
+				# Add group names to per-user object for CSV export
+				$PreviousGroupHash = $null
+				$PreviousGroupHash = @{
+					'User_Name'  = "$($username.sAMAccountName)"
+					'Group_Name' = $($group.Name)
+					#'User_DistinguishedName'  = $($username.DistinguishedName)
+					#'Group_DistinguishedName' = $($group.DistinguishedName) 
+				}
+				$PreviousGroupObject = $null
+				$PreviousGroupObject = New-Object -TypeName PSObject -Property $PreviousGroupHash
+				$PreviousGroups += $PreviousGroupObject
+
 			}
 
-			# Add group names to per-user object for CSV export
-			$PreviousGroupLogFile = $LogFileDir + $username.SamAccountName + "-groups.csv";
-			$PreviousGroupProperties = @{Name = $($group.name) }
-			$PreviousGroupObject = New-Object -TypeName PSObject -Property $PreviousGroupProperties
-			$PreviousGroups += $PreviousGroupObject
-
 		}
-
+		# Export CSV of removed groups
+		if ($($PreviousGroups.count) -gt 0) {
+			$PreviousGroups | Sort-Object -Property DistinguishedName | Export-Csv -NoTypeInformation -Path $PreviousGroupsLogFile
+		}
+		else {
+			Write-Verbose "No groups removed for $($username.DistinguishedName)."
+		}
+	
 	}
-	# Export CSV of removed groups
-	$PreviousGroups | Export-Csv -NoTypeInformation -Path $PreviousGroupLogFile
-
+	Write-Progress -Activity $ProgressActivity -Completed
+}
+else {
+	$ProgressCount = 0
+	$UndoLogFiles = Get-ChildItem -Path $LogFileDirectory
+	$ProgressActivity = "Removing group memberships from $($UndoLogFiles.count) user log files."
+	foreach ($LogFile in $UndoLogFiles) {
+		$ProgressMessage = "Importing $($LogFile.FullName)."
+		$ProgressCount ++
+		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete ($ProgressCount/$($UndoLogFiles.count))
+		$UndoGroups = Import-Csv -Path $($LogFile.FullName)
+		ForEach ($UndoGroup in $UndoGroups) {
+			$ProgressMessage = "Attempting to add the user $($UndoGroup.User_Name) to the group $($UndoGroup.Group_Name)."
+			Write-Verbose $ProgressMessage
+			try {
+				Add-AdGroupMember -Identity $($UndoGroup.Group_Name) -Members $($UndoGroup.User_Name)
+			}
+			catch {
+				$warning = "An error occurred while " + $ProgressMessage + " They may need to be corrected manually."
+				Write-Warning $warning
+			}
+		}
+	}
+	Write-Progress -Activity $ProgressActivity -Completed
 }
