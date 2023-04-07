@@ -46,7 +46,7 @@ If ($OU) {
 	$DisabledOU = $OU
 }
 else {
-	$DisabledOU = "OU=All Users,DC=autovalve,DC=com"
+	$DisabledOU = "OU=All Users,DC=example,DC=org"
 }
 
 
