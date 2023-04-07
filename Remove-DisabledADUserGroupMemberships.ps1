@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 	Removes group memberships from disabled AD user accounts. 
-	
+
 .DESCRIPTION
 	This script removes group memberships from user accounts in the disabled Users OU and saves them to a per-user log file in a dated directory.
 	
@@ -62,7 +62,7 @@ if (!($Undo)) {
 	foreach ($username in $DisabledADUsers) {
 		$ProgressCount ++
 		$ProgressMessage = "Now evaluating $($username.DistinguishedName)."
-		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete ($ProgressCount/$($DisabledADUsers.count))
+		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete (($ProgressCount/$($DisabledADUsers.count))*100)
 		
 		$PreviousGroups = @()
 		$PreviousGroupsLogFile = $LogFileDirectory + $($username.SamAccountName) + "-groups.csv";
@@ -123,13 +123,15 @@ else {
 	foreach ($LogFile in $UndoLogFiles) {
 		$ProgressMessage = "Importing $($LogFile.FullName)."
 		$ProgressCount ++
-		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete ($ProgressCount/$($UndoLogFiles.count))
+		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete (($ProgressCount/$($UndoLogFiles.count))*100)
 		$UndoGroups = Import-Csv -Path $($LogFile.FullName)
 		ForEach ($UndoGroup in $UndoGroups) {
 			$ProgressMessage = "Attempting to add the user $($UndoGroup.User_Name) to the group $($UndoGroup.Group_Name)."
 			Write-Verbose $ProgressMessage
 			try {
-				Add-AdGroupMember -Identity $($UndoGroup.Group_Name) -Members $($UndoGroup.User_Name)
+				#Add-AdGroupMember -Identity $($UndoGroup.DistinguishedName) -Members $($UndoGroup.User_DistinguishedName)
+				[string] $Filter = $($UndoGroup.Group_Name)
+				Get-ADGroup -Filter {Name -eq "$Filter"} | Add-AdGroupMember -Members $($UndoGroup.User_Name)
 			}
 			catch {
 				$warning = "An error occurred while " + $ProgressMessage + " They may need to be corrected manually."
