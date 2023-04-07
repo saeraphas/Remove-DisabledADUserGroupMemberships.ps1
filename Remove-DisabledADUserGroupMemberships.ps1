@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
 	Removes group memberships from disabled AD user accounts. 
+	
 .DESCRIPTION
 	This script removes group memberships from user accounts in the disabled Users OU and saves them to a per-user log file in a dated directory.
 	
@@ -16,6 +17,9 @@
 
 .EXAMPLE
 	.\Remove-DisabledADUserGroupMemberships.ps1 -OU "OU=Terminated Users,DC=example,DC=org"
+
+.LINK
+	https://github.com/saeraphas/Remove-DisabledADUserGroupMemberships.ps1
 
 .NOTES
     Author:             Douglas Hammond 
