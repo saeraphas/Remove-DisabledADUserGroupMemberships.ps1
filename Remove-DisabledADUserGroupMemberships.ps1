@@ -10,10 +10,15 @@
 	
 .PARAMETER OU
 	Specifies the DistinguishedName of the AD OU to search. 
-	If this is blank, a preconfigured OU can be specified as $DisabledOU .
+	If this is not specified, the script will search all OUs under the domain root.
 
 .PARAMETER Undo
 	Imports the CSV log files from today and adds users back to the groups they were removed from. 
+
+.PARAMETER SkipUpdateCheck
+	This script checks whether it matches the current published version on GitHub. 
+	If it does not match, it will prompt whether to run the current version. 
+	If you customize the $SearchOU parameter, set this $true. 
 
 .EXAMPLE
 	.\Remove-DisabledADUserGroupMemberships.ps1 -OU "OU=Terminated Users,DC=example,DC=org"
@@ -31,7 +36,8 @@
 Param (
 	[Parameter(ValueFromPipelineByPropertyName)]
 	[string] $OU,
-	[switch] $Undo
+	[switch] $Undo,
+	[switch] $SkipUpdateCheck
 )
 
 #Requires -Modules activedirectory 
@@ -71,27 +77,25 @@ function CheckForUpdates($GitHubURI) {
 	}
 }
 
-CheckForUpdates("https://raw.githubusercontent.com/saeraphas/Remove-DisabledADUserGroupMemberships.ps1/main/Remove-DisabledADUserGroupMemberships.ps1")
-import-module activedirectory 
+If ($OU) { $SearchOU = $OU } else {
+	$SearchOU = $($(Get-ADRootDSE).DefaultNamingContext) #if you customize this, uncomment the update check
+	#$SkipUpdateCheck = $true
+}
 
+#Check GitHub for a modified version
+If (!($SkipUpdateCheck)) { CheckForUpdates("https://raw.githubusercontent.com/saeraphas/Remove-DisabledADUserGroupMemberships.ps1/main/Remove-DisabledADUserGroupMemberships.ps1") }
+
+import-module activedirectory 
 $datestring = ((get-date).tostring("yyyy-MM-dd"))
 $LogFileDirectory = "c:\nexigen\offboarded\$datestring\"
 $DomainUsersGroupToken = (get-adgroup "Domain Users" -properties @("primaryGroupToken")).primaryGroupToken
 $DomainGuestsGroupToken = (get-adgroup "Domain Guests" -properties @("primaryGroupToken")).primaryGroupToken
 
-If ($OU) {
-	$DisabledOU = $OU
-}
-else {
-	$DisabledOU = "OU=All Users,DC=example,DC=org"
-}
-
-
 # create the log file directory if it doesn't exist
 If (!(Test-Path -LiteralPath $LogFileDirectory)) { New-Item -Path $LogFileDirectory -ItemType Directory -ErrorAction Stop | Out-Null }
 
 $ExcludedUsers = @("Guest", "Administrator", "krbtgt")
-$DisabledADUsers = Get-ADUser -SearchBase $DisabledOU -filter 'enabled -eq "false"' -Properties PrimaryGroupID | Where-Object { $ExcludedUsers -notcontains $_.sAMAccountName }
+$DisabledADUsers = Get-ADUser -SearchBase $SearchOU -filter 'enabled -eq "false"' -Properties PrimaryGroupID | Where-Object { $ExcludedUsers -notcontains $_.sAMAccountName }
 
 if (!($Undo)) {
 	$ProgressCount = 0
@@ -130,7 +134,7 @@ if (!($Undo)) {
 				# Remove user from group
 				try { remove-adgroupmember -Identity $($group.SamAccountName) -Member $($username.SamAccountName) -Confirm:$false }
 				catch {
-					$warning = "An error occurred while " + $ProgressMessage + " They may need to be corrected manually."
+					$warning = "An error occurred while " + $ProgressMessage + " This may need to be corrected manually."
 					Write-Warning $warning
 				}
 
@@ -145,7 +149,6 @@ if (!($Undo)) {
 				$PreviousGroupObject = $null
 				$PreviousGroupObject = New-Object -TypeName PSObject -Property $PreviousGroupHash
 				$PreviousGroups += $PreviousGroupObject
-
 			}
 
 		}
@@ -177,7 +180,7 @@ else {
 				Get-ADGroup -Filter { Name -eq $Filter } | Add-AdGroupMember -Members $($UndoGroup.User_Name)
 			}
 			catch {
-				$warning = "An error occurred while " + $ProgressMessage + " They may need to be corrected manually."
+				$warning = "An error occurred while " + $ProgressMessage + " This may need to be corrected manually."
 				Write-Warning $warning
 			}
 		}
