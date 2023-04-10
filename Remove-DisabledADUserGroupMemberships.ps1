@@ -47,14 +47,14 @@ function CheckForUpdates($GitHubURI) {
 	$writer.write($LocalScriptContent)
 	$writer.Flush()
 	$stringAsStream.Position = 0
-	$LocalScriptHash = Get-FileHash -InputStream $localstringAsStream -Algorithm SHA256
+	$LocalScriptHash = (Get-FileHash -InputStream $localstringAsStream -Algorithm SHA256).Hash
 
 	$cloudstringAsStream = [System.IO.MemoryStream]::new()
 	$writer = [System.IO.StreamWriter]::new($cloudstringAsStream)
 	$writer.write($CloudScriptContent)
 	$writer.Flush()
 	$stringAsStream.Position = 0
-	$CloudScriptHash = Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256
+	$CloudScriptHash = (Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256).Hash
 
 	Write-Verbose "Local Script Hash: $LocalScriptHash"
 	Write-Verbose "Cloud Script Hash: $CloudScriptHash"
