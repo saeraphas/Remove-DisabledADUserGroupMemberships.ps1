@@ -37,7 +37,7 @@ Param (
 #Requires -Modules activedirectory 
 
 function CheckForUpdates($GitHubURI) {
-	$LocalScriptPath = $MyInvocation.MyCommand.Path
+	$LocalScriptPath = $myInvocation.ScriptName
 	$LocalScriptContent = Get-Content $LocalScriptPath
 	$CloudScriptPath = $GitHubURI
 	$CloudScriptContent = (Invoke-WebRequest -UseBasicParsing $CloudScriptPath).Content
@@ -60,12 +60,12 @@ function CheckForUpdates($GitHubURI) {
 	Write-Verbose "Cloud Script Hash: $CloudScriptHash"
 
 	If ($LocalScriptHash -ne $CloudScriptHash) {
-		$MismatchWarning = "The running script does not match the current version from GitHub."
+		$MismatchWarning = "The running script does not match the current version on GitHub."
 		Write-Warning $MismatchWarning
-		$MismatchPrompt = 'Enter "y" to run GitHub version instead.'
+		$MismatchPrompt = 'Enter "y" to switch to the GitHub version now, or any other key to continue using the local version.'
 		$Answer = Read-Host $MismatchPrompt
 		If ($Answer -eq "y") {
-			Write-Verbose "Using GitHub version."
+			Write-Verbose "Switching to GitHub version."
 			Invoke-Expression $CloudScriptContent; exit
 		}
 	}
