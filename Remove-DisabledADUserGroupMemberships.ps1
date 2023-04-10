@@ -35,6 +35,43 @@ Param (
 )
 
 #Requires -Modules activedirectory 
+
+function CheckForUpdates($GitHubURI) {
+	$LocalScriptPath = $MyInvocation.MyCommand.Path
+	$LocalScriptContent = Get-Content $LocalScriptPath
+	$CloudScriptPath = $GitHubURI
+	$CloudScriptContent = (Invoke-WebRequest -UseBasicParsing $CloudScriptPath).Content
+
+	$localstringAsStream = [System.IO.MemoryStream]::new()
+	$writer = [System.IO.StreamWriter]::new($localstringAsStream)
+	$writer.write($LocalScriptContent)
+	$writer.Flush()
+	$stringAsStream.Position = 0
+	$LocalScriptHash = Get-FileHash -InputStream $localstringAsStream -Algorithm SHA256
+
+	$cloudstringAsStream = [System.IO.MemoryStream]::new()
+	$writer = [System.IO.StreamWriter]::new($cloudstringAsStream)
+	$writer.write($CloudScriptContent)
+	$writer.Flush()
+	$stringAsStream.Position = 0
+	$CloudScriptHash = Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256
+
+	Write-Verbose "Local Script Hash: $LocalScriptHash"
+	Write-Verbose "Cloud Script Hash: $CloudScriptHash"
+
+	If ($LocalScriptHash -ne $CloudScriptHash) {
+		$MismatchWarning = "The running script does not match the current version from GitHub."
+		Write-Warning $MismatchWarning
+		$MismatchPrompt = 'Enter "y" to run GitHub version instead.'
+		$Answer = Read-Host $MismatchPrompt
+		If ($Answer -eq "y") {
+			Write-Verbose "Using GitHub version."
+			Invoke-Expression $CloudScriptContent; exit
+		}
+	}
+}
+
+CheckForUpdates("https://raw.githubusercontent.com/saeraphas/Remove-DisabledADUserGroupMemberships.ps1/main/Remove-DisabledADUserGroupMemberships.ps1")
 import-module activedirectory 
 
 $datestring = ((get-date).tostring("yyyy-MM-dd"))
@@ -68,12 +105,12 @@ if (!($Undo)) {
 		$PreviousGroupsLogFile = $LogFileDirectory + $($username.SamAccountName) + "-groups.csv";
 
 		#Set account Primary Group to Domain Users, unless account is in Domain Guests
-#		$PrimaryGroup = (Get-ADUser $username -Properties PrimaryGroupID).primaryGroupID	#superfluous query?
+		#		$PrimaryGroup = (Get-ADUser $username -Properties PrimaryGroupID).primaryGroupID	#superfluous query?
 		$PrimaryGroup = $($username.primaryGroupID)
 		Write-Verbose "Account Primary Group is $PrimaryGroup, Domain Users is $DomainUsersGroupToken, Domain Guests is $DomainGuestsGroupToken."
-		if (($PrimaryGroup -ne $DomainUsersGroupToken) -and ($PrimaryGroup -ne $DomainGuestsGroupToken)){
+		if (($PrimaryGroup -ne $DomainUsersGroupToken) -and ($PrimaryGroup -ne $DomainGuestsGroupToken)) {
 			Get-ADGroup -Filter { Name -eq "Domain Users" } | Add-AdGroupMember -Members $username
-			Set-ADUser -Identity $username -Replace @{primarygroupid = $DomainUsersGroupToken}
+			Set-ADUser -Identity $username -Replace @{primarygroupid = $DomainUsersGroupToken }
 		}
 
 		# Get all group memberships
@@ -83,7 +120,7 @@ if (!($Undo)) {
 		foreach ($group in $groups) {
 
 			# Don't try to remove the account from Domain Users and Domain Guests
-			$ExcludedGroups = @("Domain Users","Domain Guests")
+			$ExcludedGroups = @("Domain Users", "Domain Guests")
 			if ($ExcludedGroups -notcontains $group.name) {
 
 				# Write progress to screen
