@@ -43,7 +43,7 @@ Param (
 #Requires -Modules activedirectory 
 
 function CheckForUpdates($GitHubURI) {
-	IF (!(Test-Path -Path $($myInvocation.ScriptName))) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
+	IF (!($null -eq $myInvocation.ScriptName)) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
 	$LocalScriptPath = $myInvocation.ScriptName
 	$LocalScriptContent = Get-Content $LocalScriptPath
 	$CloudScriptPath = $GitHubURI
