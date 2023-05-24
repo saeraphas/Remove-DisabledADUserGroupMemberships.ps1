@@ -43,40 +43,40 @@ Param (
 #Requires -Modules activedirectory 
 
 function CheckForUpdates($GitHubURI) {
-	IF (!($null -eq $myInvocation.ScriptName)) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
-	$LocalScriptPath = $myInvocation.ScriptName
-	$LocalScriptContent = Get-Content $LocalScriptPath
-	$CloudScriptPath = $GitHubURI
-	$CloudScriptContent = (Invoke-WebRequest -UseBasicParsing $CloudScriptPath).Content
+    IF ($null -eq $myInvocation.ScriptName) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
+        $LocalScriptPath = $myInvocation.ScriptName
+        $LocalScriptContent = Get-Content $LocalScriptPath
+        $CloudScriptPath = $GitHubURI
+        $CloudScriptContent = (Invoke-WebRequest -UseBasicParsing $CloudScriptPath).Content
 
-	$localstringAsStream = [System.IO.MemoryStream]::new()
-	$writer = [System.IO.StreamWriter]::new($localstringAsStream)
-	$writer.write($LocalScriptContent)
-	$writer.Flush()
-	$stringAsStream.Position = 0
-	$LocalScriptHash = (Get-FileHash -InputStream $localstringAsStream -Algorithm SHA256).Hash
+        $localstringAsStream = [System.IO.MemoryStream]::new()
+        $writer = [System.IO.StreamWriter]::new($localstringAsStream)
+        $writer.write($LocalScriptContent)
+        $writer.Flush()
+        $localstringAsStream.Position = 0
+        $LocalScriptHash = (Get-FileHash -InputStream $localstringAsStream -Algorithm SHA256).Hash
 
-	$cloudstringAsStream = [System.IO.MemoryStream]::new()
-	$writer = [System.IO.StreamWriter]::new($cloudstringAsStream)
-	$writer.write($CloudScriptContent)
-	$writer.Flush()
-	$stringAsStream.Position = 0
-	$CloudScriptHash = (Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256).Hash
+        $cloudstringAsStream = [System.IO.MemoryStream]::new()
+        $writer = [System.IO.StreamWriter]::new($cloudstringAsStream)
+        $writer.write($CloudScriptContent)
+        $writer.Flush()
+        $cloudstringAsStream.Position = 0
+        $CloudScriptHash = (Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256).Hash
 
-	Write-Verbose "Local Script Hash: $LocalScriptHash"
-	Write-Verbose "Cloud Script Hash: $CloudScriptHash"
+        Write-Verbose "Local Script Hash: $LocalScriptHash"
+        Write-Verbose "Cloud Script Hash: $CloudScriptHash"
 
-	If ($LocalScriptHash -ne $CloudScriptHash) {
-		$MismatchWarning = "The running script does not match the current version on GitHub."
-		Write-Warning $MismatchWarning
-		$MismatchPrompt = 'Enter "y" to switch to the GitHub version now, or any other key to continue using the local version.'
-		$Answer = Read-Host $MismatchPrompt
-		If ($Answer -eq "y") {
-			Write-Verbose "Switching to GitHub version."
-			Invoke-Expression $CloudScriptContent; exit
-		}
-	}
-}
+        If ($LocalScriptHash -ne $CloudScriptHash) {
+            $MismatchWarning = "The running script does not match the current version on GitHub."
+            Write-Warning $MismatchWarning
+            $MismatchPrompt = 'Enter "y" to switch to the GitHub version now, or any other key to continue using the local version.'
+            $Answer = Read-Host $MismatchPrompt
+            If ($Answer -eq "y") {
+                Write-Verbose "Switching to GitHub version."
+                Invoke-Expression $CloudScriptContent; exit
+            }
+        }
+    }
 }
 
 If ($OU) { $SearchOU = $OU } else {
