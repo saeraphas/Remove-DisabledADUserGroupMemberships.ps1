@@ -43,7 +43,7 @@ Param (
 #Requires -Modules activedirectory 
 
 function CheckForUpdates($GitHubURI) {
-    IF ($null -eq $myInvocation.ScriptName) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
+    IF ($($myInvocation.ScriptName).Length -eq 0) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
         $LocalScriptPath = $myInvocation.ScriptName
         $LocalScriptContent = Get-Content $LocalScriptPath
         $CloudScriptPath = $GitHubURI
@@ -63,6 +63,7 @@ function CheckForUpdates($GitHubURI) {
         $cloudstringAsStream.Position = 0
         $CloudScriptHash = (Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256).Hash
 
+        Write-Verbose "Local Script Path: $LocalScriptPath"
         Write-Verbose "Local Script Hash: $LocalScriptHash"
         Write-Verbose "Cloud Script Hash: $CloudScriptHash"
 
