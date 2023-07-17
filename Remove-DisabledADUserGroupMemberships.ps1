@@ -85,6 +85,8 @@ If ($OU) { $SearchOU = $OU } else {
 	#$SkipUpdateCheck = $true
 }
 
+$SkipUpdateCheck = $true #this broke and I have no idea why
+
 #Check GitHub for a modified version
 If (!($SkipUpdateCheck)) { CheckForUpdates("https://raw.githubusercontent.com/saeraphas/Remove-DisabledADUserGroupMemberships.ps1/main/Remove-DisabledADUserGroupMemberships.ps1") }
 
@@ -108,7 +110,7 @@ if (!($Undo)) {
 		$ProgressMessage = "Now evaluating $($username.DistinguishedName)."
 		Write-Progress -Activity $ProgressActivity -CurrentOperation $ProgressMessage -PercentComplete (($ProgressCount / $($DisabledADUsers.count)) * 100)
 		
-		$PreviousGroups = @()
+		[array]$PreviousGroups = @()
 		$PreviousGroupsLogFile = $LogFileDirectory + $($username.SamAccountName) + "-groups.csv";
 
 		#Set account Primary Group to Domain Users, unless account is in Domain Guests
