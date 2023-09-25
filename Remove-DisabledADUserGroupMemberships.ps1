@@ -15,11 +15,6 @@
 .PARAMETER Undo
 	Imports the CSV log files from today and adds users back to the groups they were removed from. 
 
-.PARAMETER SkipUpdateCheck
-	This script checks whether it matches the current published version on GitHub. 
-	If it does not match, it will prompt whether to run the current version. 
-	If you customize the $SearchOU parameter, set this $true. 
-
 .EXAMPLE
 	.\Remove-DisabledADUserGroupMemberships.ps1 -OU "OU=Terminated Users,DC=example,DC=org"
 
@@ -42,57 +37,24 @@ Param (
 
 #Requires -Modules activedirectory 
 
-function CheckForUpdates($GitHubURI) {
-    IF ($($myInvocation.ScriptName).Length -eq 0) { Write-Verbose "No local script path exists, skipping cloud version comparison." } else {
-        $LocalScriptPath = $myInvocation.ScriptName
-        $LocalScriptContent = Get-Content $LocalScriptPath
-        $CloudScriptPath = $GitHubURI
-        $CloudScriptContent = (Invoke-WebRequest -UseBasicParsing $CloudScriptPath).Content
-
-        $localstringAsStream = [System.IO.MemoryStream]::new()
-        $writer = [System.IO.StreamWriter]::new($localstringAsStream)
-        $writer.write($LocalScriptContent)
-        $writer.Flush()
-        $localstringAsStream.Position = 0
-        $LocalScriptHash = (Get-FileHash -InputStream $localstringAsStream -Algorithm SHA256).Hash
-
-        $cloudstringAsStream = [System.IO.MemoryStream]::new()
-        $writer = [System.IO.StreamWriter]::new($cloudstringAsStream)
-        $writer.write($CloudScriptContent)
-        $writer.Flush()
-        $cloudstringAsStream.Position = 0
-        $CloudScriptHash = (Get-FileHash -InputStream $cloudstringAsStream -Algorithm SHA256).Hash
-
-        Write-Verbose "Local Script Path: $LocalScriptPath"
-        Write-Verbose "Local Script Hash: $LocalScriptHash"
-        Write-Verbose "Cloud Script Hash: $CloudScriptHash"
-
-        If ($LocalScriptHash -ne $CloudScriptHash) {
-            $MismatchWarning = "The running script does not match the current version on GitHub."
-            Write-Warning $MismatchWarning
-            $MismatchPrompt = 'Enter "y" to switch to the GitHub version now, or any other key to continue using the local version.'
-            $Answer = Read-Host $MismatchPrompt
-            If ($Answer -eq "y") {
-                Write-Verbose "Switching to GitHub version."
-                Invoke-Expression $CloudScriptContent; exit
-            }
-        }
-    }
-}
+$Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 If ($OU) { $SearchOU = $OU } else {
-	$SearchOU = $($(Get-ADRootDSE).DefaultNamingContext) #if you customize this, uncomment the update check
-	#$SkipUpdateCheck = $true
+	$SearchOU = $($(Get-ADRootDSE).DefaultNamingContext) 
 }
 
-$SkipUpdateCheck = $true #this broke and I have no idea why
-
-#Check GitHub for a modified version
-If (!($SkipUpdateCheck)) { CheckForUpdates("https://raw.githubusercontent.com/saeraphas/Remove-DisabledADUserGroupMemberships.ps1/main/Remove-DisabledADUserGroupMemberships.ps1") }
-
 import-module activedirectory 
-$datestring = ((get-date).tostring("yyyy-MM-dd"))
-$LogFileDirectory = "c:\nexigen\offboarded\$datestring\"
+#define the output path
+$DateString = ((get-date).tostring("yyyy-MM-dd"))
+$DesktopPath = [Environment]::GetFolderPath("Desktop")
+$ReportPath = "$DesktopPath\Reports"
+#get NETBIOS domain name
+try { $ADDomain = (Get-WMIObject Win32_NTDomain).DomainName } catch { Write-Warning "An error occurred getting the AD domain name." }
+if ($ADDomain.length -ge 1) { $Customer = $ADDomain } else { $Customer = "Nexigen" }
+$ReportType = "DisabledADUserGroupMemberships"
+$LogFileDirectory = "$ReportPath\$Customer\$Customer-$ReportType-$DateString\"
+
+#$PSNewLine = [System.Environment]::Newline
 $DomainUsersGroupToken = (get-adgroup "Domain Users" -properties @("primaryGroupToken")).primaryGroupToken
 $DomainGuestsGroupToken = (get-adgroup "Domain Guests" -properties @("primaryGroupToken")).primaryGroupToken
 
@@ -171,7 +133,7 @@ if (!($Undo)) {
 else {
 	$ProgressCount = 0
 	$UndoLogFiles = Get-ChildItem -Path $LogFileDirectory
-	$ProgressActivity = "Removing group memberships from $($UndoLogFiles.count) user log files."
+	$ProgressActivity = "Restoring group memberships from $($UndoLogFiles.count) user log files."
 	foreach ($LogFile in $UndoLogFiles) {
 		$ProgressMessage = "Importing $($LogFile.FullName)."
 		$ProgressCount ++
@@ -192,3 +154,7 @@ else {
 	}
 	Write-Progress -Activity $ProgressActivity -Completed
 }
+
+Write-Output "Finished in $($Stopwatch.Elapsed.TotalSeconds) seconds."
+Write-Output "Log\Undo output path is $LogFileDirectory."
+$Stopwatch.Stop()
