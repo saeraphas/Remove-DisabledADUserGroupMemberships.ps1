@@ -31,6 +31,7 @@
 Param (
 	[Parameter(ValueFromPipelineByPropertyName)]
 	[string] $OU,
+	[string] $TerminatedAccountGroup,
 	[switch] $Undo,
 	[switch] $SkipUpdateCheck
 )
@@ -41,6 +42,12 @@ $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 If ($OU) { $SearchOU = $OU } else {
 	$SearchOU = $($(Get-ADRootDSE).DefaultNamingContext) 
+}
+
+If ($TerminatedAccountGroup) { 
+	$TargetGroup = Get-ADGroup -Filter { Name -eq $TerminatedAccountGroup }
+} else {
+	$TargetGroup = Get-ADGroup -Filter { Name -eq "Domain Users" }
 }
 
 import-module activedirectory 
@@ -80,7 +87,8 @@ if (!($Undo)) {
 		$PrimaryGroup = $($username.primaryGroupID)
 		Write-Verbose "Account Primary Group is $PrimaryGroup, Domain Users is $DomainUsersGroupToken, Domain Guests is $DomainGuestsGroupToken."
 		if (($PrimaryGroup -ne $DomainUsersGroupToken) -and ($PrimaryGroup -ne $DomainGuestsGroupToken)) {
-			Get-ADGroup -Filter { Name -eq "Domain Users" } | Add-AdGroupMember -Members $username
+			Write-Verbose "Adding to target group $TargetGroup."
+			$TargetGroup | Add-AdGroupMember -Members $username
 			Set-ADUser -Identity $username -Replace @{primarygroupid = $DomainUsersGroupToken }
 		}
 
